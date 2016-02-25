@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>文件上传</title>
+  <link rel="stylesheet" href="bootstrap/dist/css/bootstrap.css">
+  <link rel="stylesheet" href="jquery/jquery.alerts.css">
+  <link type="text/css" rel="stylesheet" href="css/materialize.css"  media="screen,projection"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+
+  <style>
+    .header {
+      width:100%;
+      height:60px;
+      background-color: #00B8EE;
+    }
+    #image-view {
+
+    }
+  </style>
+</head>
+<body>
+<div id="wrapper">
+  <div class="header light-blue lighten-1">
+    <span style="float:right;font-size:20px;line-height:3.0;margin-right:20px;color:#e1f5fe;">文件上传服务器</span>
+  </div>
+  <div class="container clearfix" style="width:100%;">
+    <div id="chose-picture">
+      <a href="#" id="pickfiles" class="btn btn-default btn-lg " style="margin:10px 0px 0px 10px;">
+        <i class="glyphicon glyphicon-plus"></i>
+        <span>选择文件</span>
+      </a>
+      <a class="btn btn-default" id="start_upload" style="margin: 10px 0px 0px 10px;">
+        <i class="icon-star"></i>
+        <span>开始上传</span>
+      </a>
+      <table style="width:800px;margin:30px 0px 0px 10px;" id="file-info" class="table table-striped table-hover">
+        <thead>
+          <tr>
+            <th style="width:20%;">文件名</th>
+            <th style="width:20%;">大小</th>
+            <th style="width:20%;">详情</th>
+            <th style="width:30%;"></th>
+          </tr>
+        </thead>
+        <tbody>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="footer">
+
+  </div>
+</div>
+<script type="text/javascript" src="jquery/jquery.min.js"></script>
+<script type="text/javascript" src="plupload/js/plupload.full.min.js"></script>
+<script type="text/javascript" src="plupload/js/i18n/zh_CN.js"></script>
+<script type="text/javascript" src="jquery/jquery.alerts.js"></script>
+<script type="text/javascript" src="common.js"></script>
+<script type="text/javascript" src="js/materialize.js"></script>
+
+<script type="text/javascript">
+  var Domain =  '7xqqm5.com1.z0.glb.clouddn.com';    // 七牛子域名，自定义域名。
+  // 获取上传凭证,token的有效时间是一小时
+  function getToken() {
+    $.ajax({
+      type: 'GET',
+      url: 'api/fileupload/uptoken',
+      dataType: 'json',
+      success: function (data) {
+        token = data.uptoken;
+      }
+    });
+  }
+
+  /*
+   * 该实例为直接上传文件，不分块，
+   1、业务服务器生成 uptoken（不设置回调，自己回调到自己这里没有意义）
+   2、凭借 上传凭证 上传文件到七牛
+   3、善后工作，比如保存相关的一些信息
+   */
+  var token,uploader;
+  $(function() {
+    //实例化一个plupload上传对象
+    uploader = new plupload.Uploader({
+      runtimes: 'html5,flash,html4',
+      browse_button : 'pickfiles', //触发文件选择对话框的按钮，为那个元素id
+      url: 'http://upload.qiniu.com/',  // 服务器上传地址
+      unique_names: true,
+      multipart: true,
+      multipart_params: {},     // 后续设置该从参数的值
+    });
+
+    //在实例对象上调用init()方法进行初始化
+    uploader.init();
+
+    // 当上传队列中的某一文件正要开始上传前触发
+    uploader.bind('BeforeUpload', function(uploader, files){
+      // 设置当前上传文件名和token
+      uploader.setOption('multipart_params', {
+        token: token,
+        'key': files.name,        // 设置key，key即为存放在云上的文件名
+      });
+    });
+
+    // 当文件添加到上传队列后触发,files为一数组（本次添加的文件对象数组）
+    uploader.bind('FilesAdded',function(uploader, files){
+      var html = '';
+      for(var i=0; i<files.length; i++) {
+        console.log('files_name___:');
+        console.log(files[i].name);
+          html = '<tr data-file_name="'+files[i].name+'">'
+                  +'<td>'+files[i].name+'</td>'
+                  +'<td>'+files[i].size+'B'+'</td>'
+                  +'<td>'+'未上传'+'</td>'
+                  +'<td>请上传</td>'
+          '</tr>';
+        $('#file-info tbody').append(html);
+      }
+    });
+
+    // 文件上传出错时触发
+    uploader.bind('Error',function(uploader,errObject){
+      console.log("error___:");
+      console.log(errObject);
+      jAlert(""+eval("("+errObject.response+")").error+"", "提示");
+      var key = errObject.file.name;  
+      // 出错处理
+      $("tr[data-file_name='"+key+"']").find('td:eq(2)').text('上传失败！');
+    });
+
+    // 文件上传完成后触发,也就是文件上传成功
+    uploader.bind('FileUploaded',function(uploader, file, responseObject){
+      var htmlStr;
+      console.log("responseObject___:");
+      console.log(responseObject);
+      var key = JSON.parse(responseObject.response).key;
+      console.log(key);
+      // 如果文件是图片，则添加预览和下载功能（默认上传的资源为公有资源，私有资源必须通过手动设置）
+      if(isImage(key)) {
+        htmlStr = '<img alt="" src="http://'+Domain+'/'+key+'" width="100" height="100" class="materialboxed">';
+        // 找到当前列
+        $("tr[data-file_name='"+key+"']").find('td:eq(3)').text('').append(htmlStr);
+      }else{   // 如果不是，则添加下载功能
+        htmlStr = '<a type="button" class="btn btn-primary" href="http://'+Domain+'/'+key+'">下载</a>';
+        $("tr[data-file_name='"+key+"']").find('td:eq(3)').text('').append(htmlStr);
+      }
+    });
+
+    // 当当前上传文件队列中的所有文件都已上传完时触发
+    uploader.bind('UploadComplete',function(uploader,file){
+      // 修改表格状态
+      $('#file-info tbody tr').each(function(index, ele){
+        var text = $(this).find('td:eq(2)').text();
+        if(text == '未上传') {
+          $(this).find('td:eq(2)').text('已上传');
+        }
+      });
+      // 清空文件队列
+      file.length = 0 ;
+      // 初始化
+      $('.materialboxed').materialbox();
+    });
+
+    //最后给"开始上传"按钮注册事件
+    document.getElementById('start_upload').onclick = function(){
+      // 查看文件队列中是否有文件已被选中 TODO
+      if(uploader.files.length == 0) {
+        jAlert("请添加需要上传的文件！", "提示");
+      }
+      uploader.start(); //调用实例对象的start()方法开始上传文件，当然你也可以在其他地方调用该方法
+    }
+    // 获取token
+    getToken();
+  });
+
+</script>
+</body>
+</html>
